@@ -1,0 +1,288 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>EcoPod — Pod Details</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root{
+      --mint:#a7f3d0;
+      --mint-strong:#34d399;
+      --bg:#f6f9f6;
+      --card:#ffffff;
+      --muted:#6b7280;
+      --dark:#0f172a;
+      --accent:#111827;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial;background:var(--bg);color:var(--dark);overflow-x:hidden}
+    .wrap{max-width:980px;margin:20px auto;padding:18px}
+    .card{background:var(--card);border-radius:14px;padding:16px;box-shadow:0 8px 28px rgba(11,15,19,0.06)}
+    a.back{display:inline-block;margin-bottom:12px;color:#2563eb;text-decoration:none}
+    h1{margin:0 0 6px 0}
+    .grid{display:grid;grid-template-columns:1fr 380px;gap:16px;align-items:start}
+    .meta .row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px dashed #eef6ee}
+    .meta .label{color:var(--muted);font-size:13px}
+    .meta .value{font-weight:700}
+    #map{height:260px;border-radius:10px;overflow:hidden}
+    .actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+    button{padding:10px 12px;border-radius:10px;border:0;cursor:pointer;font-weight:700}
+    .btn-primary{background: var(--accent);color:white}
+    .btn-report{background: #f97316;color:white}
+    .btn-toggle{background: var(--mint-strong);color:white}
+    .btn-directions{background:transparent;border:1px solid #e6eef0;padding:9px 12px}
+    #log{margin-top:12px;max-height:240px;overflow:auto;padding:8px;border-radius:10px;background:#fbfdfb;border:1px solid #eef6ee}
+    .log-item{display:flex;gap:12px;padding:8px;border-bottom:1px solid #eef6ee;align-items:center}
+    .log-item:last-child{border-bottom:none}
+    .log-icon{width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-weight:700;flex:0 0 40px}
+    .log-text{flex:1;line-height:1.25}
+    .log-time{color:var(--muted);font-size:12px;margin-left:8px;white-space:nowrap}
+    .count-badge{background:var(--accent);color:white;padding:4px 8px;border-radius:12px;font-size:12px;margin-left:8px}
+    @media(max-width:900px){ .grid{grid-template-columns:1fr} .actions{flex-wrap:wrap} }
+    /* small helpers */
+    .muted { color: var(--muted); font-size: 13px }
+    .sep { color: var(--muted); margin: 0 6px; font-weight:600 }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="/">&larr; Back to map</a>
+    <div class="card">
+      <h1 id="name">Pod details</h1>
+      <div class="grid" style="margin-top:12px">
+        <div class="meta" id="metaCol">
+          <div class="row"><div class="label">Location</div><div class="value" id="coords">—</div></div>
+          <div class="row"><div class="label">Cleanliness</div><div class="value" id="clean">—</div></div>
+          <div class="row"><div class="label">Availability</div><div class="value" id="avail">—</div></div>
+          <div class="row"><div class="label">Self-cleaning</div><div class="value" id="selfclean">—</div></div>
+          <div class="row"><div class="label">Last cleaned</div><div class="value" id="lastclean">—</div></div>
+
+          <div style="margin-top:12px">
+            <div class="actions">
+              <button id="checkinBtn" class="btn-primary">Check in (Apple Pay)</button>
+              <button id="reportBtn" class="btn-report">Report issue</button>
+              <button id="toggleBtn" class="btn-toggle">Toggle availability</button>
+              <button id="directionsBtn" class="btn-directions">Get directions</button>
+            </div>
+          </div>
+
+          <div id="log"></div>
+        </div>
+
+        <div>
+          <div id="map"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const API = '/api';
+    const socket = io();
+    const qs = new URLSearchParams(location.search);
+    const id = qs.get('id');
+    if (!id) { document.body.innerHTML = '<div style="padding:20px">No pod id. <a href="/">Back</a></div>'; throw new Error('No id'); }
+
+    // nice title-casing for method names (apple_pay -> Apple Pay)
+    function prettyMethod(raw) {
+      if (!raw) return '';
+      return raw.split(/[_\s]+/).map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
+    }
+
+    // icon svgs
+    const ICONS = {
+      usage: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 12l2 2 4-4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+      report: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 9v4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 17h.01" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+      status: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 12l3 3 6-9 8 8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+      info: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 8h.01M11 12h1v4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+    };
+
+    // Activity log: keep messages compact and coalesced
+    const LOG = []; // { text, type, timeISO, count }
+    function pushLog(text, type='info') {
+      const now = new Date();
+      const last = LOG[LOG.length - 1];
+      // coalesce identical messages within 5 seconds
+      if (last && last.text === text && (now - new Date(last.timeISO)) < 5000) {
+        last.count = (last.count || 1) + 1;
+        last.timeISO = now.toISOString();
+      } else {
+        LOG.push({ text, type, timeISO: now.toISOString(), count: 1 });
+        if (LOG.length > 500) LOG.shift();
+      }
+      renderLog();
+    }
+
+    function renderLog() {
+      const el = document.getElementById('log');
+      el.innerHTML = '';
+      // show newest first
+      for (let i = LOG.length - 1; i >= 0; i--) {
+        const it = LOG[i];
+        const div = document.createElement('div');
+        div.className = 'log-item';
+
+        const icon = document.createElement('div');
+        icon.className = 'log-icon';
+        // pick background color per type
+        if (it.type === 'usage') { icon.style.background = '#111827'; icon.innerHTML = ICONS.usage; }
+        else if (it.type === 'report') { icon.style.background = '#f97316'; icon.innerHTML = ICONS.report; }
+        else if (it.type === 'status') { icon.style.background = '#34d399'; icon.innerHTML = ICONS.status; }
+        else { icon.style.background = '#94a3b8'; icon.innerHTML = ICONS.info; }
+
+        const text = document.createElement('div');
+        text.className = 'log-text';
+        // single-line composed message without weird dashes
+        text.innerHTML = `<div style="font-weight:600">${it.text}</div>`;
+
+        const meta = document.createElement('div');
+        meta.style.display = 'flex';
+        meta.style.alignItems = 'center';
+
+        const time = document.createElement('div');
+        time.className = 'log-time';
+        time.innerText = (new Date(it.timeISO)).toLocaleString();
+
+        meta.appendChild(time);
+        if (it.count && it.count > 1) {
+          const c = document.createElement('div');
+          c.className = 'count-badge';
+          c.innerText = 'x' + it.count;
+          meta.appendChild(c);
+        }
+
+        div.appendChild(icon);
+        div.appendChild(text);
+        div.appendChild(meta);
+        el.appendChild(div);
+      }
+    }
+
+    // load pod details and render
+    async function loadPod() {
+      try {
+        const pod = await fetch(`${API}/pods/${id}`).then(r => r.json());
+        if (!pod || pod.error) { document.body.innerHTML = '<div style="padding:20px">Pod not found. <a href="/">Back</a></div>'; return; }
+        document.getElementById('name').innerText = pod.name;
+        document.getElementById('coords').innerText = `${pod.lat.toFixed(5)}, ${pod.lng.toFixed(5)}`;
+        document.getElementById('clean').innerText = pod.cleanliness + '%';
+        document.getElementById('avail').innerText = pod.available ? 'Available' : 'Occupied';
+        document.getElementById('selfclean').innerText = pod.self_cleaning ? 'Yes' : 'No';
+        document.getElementById('lastclean').innerText = new Date(pod.last_cleaned).toLocaleString();
+
+        // map init / update
+        if (!window._podMap) {
+          window._podMap = L.map('map', { zoomControl:true, attributionControl:false }).setView([pod.lat, pod.lng], 17);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19 }).addTo(window._podMap);
+          window._podMarker = L.marker([pod.lat, pod.lng]).addTo(window._podMap).bindPopup(pod.name).openPopup();
+        } else {
+          window._podMap.setView([pod.lat, pod.lng], 17);
+          window._podMarker.setLatLng([pod.lat, pod.lng]).setPopupContent(pod.name);
+        }
+      } catch (e) {
+        console.error('load failed', e);
+      }
+    }
+
+    // Actions
+    document.getElementById('checkinBtn').addEventListener('click', async (ev) => {
+      const btn = ev.currentTarget; btn.disabled = true; const orig = btn.innerText; btn.innerText = 'Processing...';
+      try {
+        const resp = await fetch(API + '/checkin', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ podId: Number(id), method: 'apple_pay' })});
+        const j = await resp.json();
+        if (resp.ok) {
+          pushLog('Checked in via ' + prettyMethod('apple_pay'), 'usage');
+          btn.innerText = 'Checked ✓';
+          setTimeout(() => { btn.disabled = false; btn.innerText = orig; }, 1400);
+          loadPod();
+        } else {
+          // show friendlier error
+          alert('Check-in failed: ' + (j.error || 'Pod not available'));
+          btn.disabled = false; btn.innerText = orig;
+        }
+      } catch (e) {
+        alert('Network error');
+        btn.disabled = false; btn.innerText = orig;
+      }
+    });
+
+    document.getElementById('reportBtn').addEventListener('click', async () => {
+      const note = prompt('Describe the issue (optional):');
+      if (note == null) return;
+      document.getElementById('reportBtn').disabled = true;
+      try {
+        await fetch(API + '/report', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ podId: Number(id), note })});
+        pushLog(`Report submitted${note ? ': "' + note + '"' : ''}`, 'report');
+      } catch (e) {
+        alert('Report failed');
+      } finally {
+        document.getElementById('reportBtn').disabled = false;
+      }
+    });
+
+    document.getElementById('toggleBtn').addEventListener('click', async (ev) => {
+      const btn = ev.currentTarget; btn.disabled = true;
+      try {
+        const pod = await fetch(`${API}/pods/${id}`).then(r => r.json());
+        const newAvail = pod.available ? 0 : 1;
+        const resp = await fetch(`${API}/pods/${id}/status`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ available: newAvail })});
+        const j = await resp.json();
+        pushLog(`Availability set → ${j.available ? 'Available' : 'Occupied'}`, 'status'); // arrow is okay here (readable)
+        loadPod();
+      } catch (e) {
+        alert('Failed to toggle availability');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // Directions - keep as before
+    document.getElementById('directionsBtn').addEventListener('click', async () => {
+      const pod = await fetch(`${API}/pods/${id}`).then(r => r.json());
+      const dest = `${pod.lat},${pod.lng}`;
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(pos => {
+          const origin = `${pos.coords.latitude},${pos.coords.longitude}`;
+          const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(dest)}&travelmode=walking`;
+          window.open(url, '_blank');
+        }, () => {
+          const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dest)}`;
+          window.open(url, '_blank');
+        }, {timeout:5000});
+      } else {
+        const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dest)}`;
+        window.open(url, '_blank');
+      }
+    });
+
+    // Socket listeners -> nicer messages
+    socket.on('pod-updated', (pod) => {
+      if (String(pod.id) !== String(id)) return;
+      // nicer status text: "Cleanliness: 82% • Available"
+      const statusText = `Cleanliness: ${pod.cleanliness}% • ${pod.available ? 'Available' : 'Occupied'}`;
+      pushLog(statusText, 'status');
+      // update small UI fields
+      document.getElementById('clean').innerText = pod.cleanliness + '%';
+      document.getElementById('avail').innerText = pod.available ? 'Available' : 'Occupied';
+      document.getElementById('lastclean').innerText = new Date(pod.last_cleaned).toLocaleString();
+      if (window._podMarker) window._podMarker.setLatLng([pod.lat, pod.lng]);
+    });
+
+    socket.on('usage', (u) => {
+      // show pretty method name
+      if (String(u.podId) === String(id)) pushLog(`Usage recorded (${prettyMethod(u.method)})`, 'usage');
+    });
+
+    socket.on('report-submitted', (r) => {
+      if (String(r.podId) === String(id)) pushLog(`Report received${r.note ? ': "' + r.note + '"' : ''}`, 'report');
+    });
+
+    // initial load + poll fallback
+    loadPod();
+    setInterval(loadPod, 20 * 1000);
+  </script>
+</body>
+</html>

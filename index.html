@@ -1,0 +1,182 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>EcoPod — Prototype</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root{
+      --mint:#a7f3d0;
+      --mint-strong:#34d399;
+      --bg:#f6f9f6;
+      --card:#ffffff;
+      --muted:#6b7280;
+      --dark:#0f172a;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;color:var(--dark);background:var(--bg);overflow-x:hidden;}
+    /* layout: sidebar fixed min width, map fills rest */
+    #app{display:grid;grid-template-columns: minmax(320px,420px) 1fr;gap:18px;height:100vh;padding:18px;align-items:stretch}
+    /* SIDEBAR */
+    #sidebar{background:var(--card);border-radius:14px;padding:18px;box-shadow:0 10px 30px rgba(11,15,19,0.06);overflow:auto}
+    header{display:flex;align-items:center;gap:12px}
+    .logo { width:44px;height:44px;border-radius:10px;background:linear-gradient(180deg,var(--mint),var(--mint-strong));display:flex;align-items:center;justify-content:center;color:#053024;font-weight:700;font-size:18px;box-shadow:0 6px 18px rgba(52,211,153,0.12) }
+    h1{margin:0;font-size:18px}
+    p.lead{margin:6px 0 12px 0;color:var(--muted);font-size:13px}
+    .controls{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+    .controls input{flex:1 1 120px;padding:10px;border-radius:10px;border:1px solid #e6eef0;background:transparent;min-width:110px}
+    .controls button{padding:10px 12px;border-radius:10px;border:0;background:var(--mint-strong);color:white;font-weight:700;cursor:pointer;box-shadow:0 6px 18px rgba(16,185,129,0.12)}
+    /* POD CARD */
+    .pod{display:flex;gap:12px;padding:12px;border-radius:12px;background:linear-gradient(180deg,#fff,#fbfffb);border:1px solid #eef6ef;align-items:center;margin-bottom:12px;cursor:pointer;transition:transform .12s}
+    .pod:hover{transform:translateY(-4px)}
+    .status-dot{width:12px;height:12px;border-radius:50%;flex:0 0 12px}
+    .meta{flex:1;min-width:0}
+    .meta strong{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .meta .coords{font-size:12px;color:var(--muted);margin-top:2px}
+    .meta .small{font-size:12px;color:var(--muted)}
+    .cleanness{display:flex;flex-direction:column;gap:6px;width:140px}
+    .bar{height:8px;border-radius:8px;background:#e9f6ef;overflow:hidden}
+    .bar > i{display:block;height:100%;background:linear-gradient(90deg,var(--mint),var(--mint-strong));border-radius:8px}
+    .actions{display:flex;flex-direction:column;gap:8px}
+    .btn{padding:8px 10px;border-radius:10px;border:0;cursor:pointer;font-weight:700}
+    .btn.ghost{background:transparent;border:1px solid #e6eef0}
+    footer{margin-top:10px;font-size:12px;color:var(--muted)}
+    /* MAP */
+    #map{border-radius:14px;box-shadow:0 10px 30px rgba(11,15,19,0.06);overflow:hidden;height:calc(100vh - 36px)}
+    /* responsive */
+    @media(max-width:880px){
+      #app{grid-template-columns:1fr;grid-template-rows:auto 1fr;padding:12px}
+      #sidebar{order:2;height:46vh}
+      #map{order:1;height:54vh}
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <header>
+        <div class="logo">EP</div>
+        <div>
+          <h1>EcoPod</h1>
+          <div class="small" style="color:var(--muted)">Find clean, dignified restrooms nearby</div>
+        </div>
+      </header>
+
+      <p class="lead">Real-time cleanliness updates and proximity search. Tap a pod for details and check-in.</p>
+
+      <div class="controls">
+        <input id="lat" placeholder="Your latitude (e.g. 30.2672)" />
+        <input id="lng" placeholder="Your longitude (e.g. -97.7431)" />
+        <button id="loc-btn">Find</button>
+      </div>
+
+      <div id="pods-list" style="margin-top:14px"></div>
+
+      <footer>
+        Prototype — Apple Pay is simulated; real integration requires merchant validation & HTTPS.
+      </footer>
+    </aside>
+
+    <div id="map"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const API = '/api';
+    const socket = io();
+
+    // Map init
+    const map = L.map('map', { zoomControl:true, attributionControl:false }).setView([30.2672, -97.7431], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19 }).addTo(map);
+    window.podMarkers = {};
+
+    function makePinSVG(color='#10b981') {
+      return L.divIcon({ className:'', html: `<svg width="28" height="42" viewBox="0 0 24 36" xmlns="http://www.w3.org/2000/svg"><path d="M12 0C7.03 0 3 4.03 3 9c0 6.75 9 18 9 18s9-11.25 9-18c0-4.97-4.03-9-9-9z" fill="${color}"/></svg>`, iconSize:[28,42], iconAnchor:[14,42], popupAnchor:[0,-36]});
+    }
+
+    // render pods list — NO check-in here (only Details)
+    function renderPodsList(pods = []) {
+      const list = document.getElementById('pods-list');
+      list.innerHTML = '';
+      pods.sort((a,b) => (b.cleanliness||0) - (a.cleanliness||0));
+      for (const pod of pods) {
+        const el = document.createElement('div'); el.className='pod';
+        const statusColor = pod.available ? '#10b981' : '#ef4444';
+        el.innerHTML = `
+          <div style="width:12px;display:flex;align-items:center"><div class="status-dot" style="background:${statusColor}"></div></div>
+          <div class="meta">
+            <strong title="${pod.name}">${pod.name}</strong>
+            <div class="coords small">${pod.lat.toFixed(5)}, ${pod.lng.toFixed(5)}</div>
+            <div style="display:flex;align-items:center;margin-top:8px;gap:8px">
+              <div class="cleanness" style="width:140px">
+                <div class="small">Clean: <strong>${pod.cleanliness}%</strong></div>
+                <div class="bar"><i style="width:${pod.cleanliness}%"></i></div>
+              </div>
+              <div class="small" style="width:86px">Self-cleaning:<br/><strong>${pod.self_cleaning ? 'Yes' : 'No'}</strong></div>
+            </div>
+          </div>
+          <div class="actions" style="margin-left:8px">
+            <button class="btn ghost btn-details">Details</button>
+          </div>
+        `;
+        el.querySelector('.btn-details').onclick = (ev) => { ev.stopPropagation(); window.location.href = `/pod.html?id=${pod.id}`; };
+        el.onclick = () => window.location.href = `/pod.html?id=${pod.id}`;
+        list.appendChild(el);
+
+        // markers and popups (only link to details)
+        const key = String(pod.id);
+        if (!window.podMarkers[key]) {
+          const color = pod.available ? '#10b981' : '#ef4444';
+          const marker = L.marker([pod.lat, pod.lng], { icon: makePinSVG(color) }).addTo(map);
+          marker.bindPopup(`<strong>${pod.name}</strong><br/>Clean: ${pod.cleanliness}%<br/><a href="/pod.html?id=${pod.id}">View details</a>`);
+          marker.on('dblclick', () => window.location.href = `/pod.html?id=${pod.id}`);
+          window.podMarkers[key] = marker;
+        } else {
+          window.podMarkers[key].setLatLng([pod.lat, pod.lng]);
+          window.podMarkers[key].setPopupContent(`<strong>${pod.name}</strong><br/>Clean: ${pod.cleanliness}%<br/><a href="/pod.html?id=${pod.id}">View details</a>`);
+        }
+      }
+    }
+
+    async function loadAndRender() {
+      try {
+        const pods = await fetch(API + '/pods').then(r => r.json());
+        renderPodsList(pods);
+      } catch(e){ console.error('load failed', e) }
+    }
+
+    document.getElementById('loc-btn').addEventListener('click', async () => {
+      const lat = parseFloat(document.getElementById('lat').value);
+      const lng = parseFloat(document.getElementById('lng').value);
+      if (!lat || !lng) return alert('Enter lat & lng');
+      const near = await fetch(`/api/pods/near?lat=${lat}&lng=${lng}&radius=5`).then(r => r.json());
+      if (near.length) map.setView([near[0].lat, near[0].lng], 15);
+      renderPodsList(near);
+    });
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(pos => {
+        document.getElementById('lat').value = pos.coords.latitude.toFixed(5);
+        document.getElementById('lng').value = pos.coords.longitude.toFixed(5);
+      }, ()=>{});
+    }
+
+    socket.on('pod-updated', (pod) => {
+      const key = String(pod.id);
+      if (window.podMarkers[key]) {
+        const color = pod.available ? '#10b981' : '#ef4444';
+        window.podMarkers[key].setLatLng([pod.lat, pod.lng]);
+        window.podMarkers[key].setPopupContent(`<strong>${pod.name}</strong><br/>Clean: ${pod.cleanliness}%<br/><a href="/pod.html?id=${pod.id}">View details</a>`);
+      }
+      loadAndRender();
+    });
+
+    socket.on('report-submitted', r => console.log('report', r));
+    socket.on('usage', u => console.log('usage', u));
+
+    loadAndRender();
+  </script>
+</body>
+</html>
