@@ -40,7 +40,6 @@
     .log-time{color:var(--muted);font-size:12px;margin-left:8px;white-space:nowrap}
     .count-badge{background:var(--accent);color:white;padding:4px 8px;border-radius:12px;font-size:12px;margin-left:8px}
     @media(max-width:900px){ .grid{grid-template-columns:1fr} .actions{flex-wrap:wrap} }
-    /* small helpers */
     .muted { color: var(--muted); font-size: 13px }
     .sep { color: var(--muted); margin: 0 6px; font-weight:600 }
   </style>
@@ -86,203 +85,115 @@
     const id = qs.get('id');
     if (!id) { document.body.innerHTML = '<div style="padding:20px">No pod id. <a href="/">Back</a></div>'; throw new Error('No id'); }
 
-    // nice title-casing for method names (apple_pay -> Apple Pay)
-    function prettyMethod(raw) {
-      if (!raw) return '';
-      return raw.split(/[_\s]+/).map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
-    }
+    function prettyMethod(raw){ return raw?raw.split(/[_\s]+/).map(s=>s.charAt(0).toUpperCase()+s.slice(1)).join(' '):''; }
 
-    // icon svgs
     const ICONS = {
-      usage: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 12l2 2 4-4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-      report: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 9v4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 17h.01" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-      status: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 12l3 3 6-9 8 8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-      info: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 8h.01M11 12h1v4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+      usage:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 12l2 2 4-4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+      report:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 9v4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 17h.01" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+      status:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 12l3 3 6-9 8 8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+      info:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 8h.01M11 12h1v4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`
     };
 
-    // Activity log: keep messages compact and coalesced
-    const LOG = []; // { text, type, timeISO, count }
-    function pushLog(text, type='info') {
-      const now = new Date();
-      const last = LOG[LOG.length - 1];
-      // coalesce identical messages within 5 seconds
-      if (last && last.text === text && (now - new Date(last.timeISO)) < 5000) {
-        last.count = (last.count || 1) + 1;
-        last.timeISO = now.toISOString();
-      } else {
-        LOG.push({ text, type, timeISO: now.toISOString(), count: 1 });
-        if (LOG.length > 500) LOG.shift();
-      }
+    const LOG = [];
+    function pushLog(text,type='info'){
+      const now=new Date();
+      const last=LOG[LOG.length-1];
+      if(last&&last.text===text&&(now-new Date(last.timeISO))<5000){ last.count=(last.count||1)+1; last.timeISO=now.toISOString(); }
+      else{ LOG.push({text,type,timeISO:now.toISOString(),count:1}); if(LOG.length>500) LOG.shift();}
       renderLog();
     }
 
-    function renderLog() {
-      const el = document.getElementById('log');
-      el.innerHTML = '';
-      // show newest first
-      for (let i = LOG.length - 1; i >= 0; i--) {
-        const it = LOG[i];
-        const div = document.createElement('div');
-        div.className = 'log-item';
-
-        const icon = document.createElement('div');
-        icon.className = 'log-icon';
-        // pick background color per type
-        if (it.type === 'usage') { icon.style.background = '#111827'; icon.innerHTML = ICONS.usage; }
-        else if (it.type === 'report') { icon.style.background = '#f97316'; icon.innerHTML = ICONS.report; }
-        else if (it.type === 'status') { icon.style.background = '#34d399'; icon.innerHTML = ICONS.status; }
-        else { icon.style.background = '#94a3b8'; icon.innerHTML = ICONS.info; }
-
-        const text = document.createElement('div');
-        text.className = 'log-text';
-        // single-line composed message without weird dashes
-        text.innerHTML = `<div style="font-weight:600">${it.text}</div>`;
-
-        const meta = document.createElement('div');
-        meta.style.display = 'flex';
-        meta.style.alignItems = 'center';
-
-        const time = document.createElement('div');
-        time.className = 'log-time';
-        time.innerText = (new Date(it.timeISO)).toLocaleString();
-
+    function renderLog(){
+      const el=document.getElementById('log'); el.innerHTML='';
+      for(let i=LOG.length-1;i>=0;i--){
+        const it=LOG[i]; const div=document.createElement('div'); div.className='log-item';
+        const icon=document.createElement('div'); icon.className='log-icon';
+        if(it.type==='usage'){icon.style.background='#111827';icon.innerHTML=ICONS.usage;}
+        else if(it.type==='report'){icon.style.background='#f97316';icon.innerHTML=ICONS.report;}
+        else if(it.type==='status'){icon.style.background='#34d399';icon.innerHTML=ICONS.status;}
+        else{icon.style.background='#94a3b8';icon.innerHTML=ICONS.info;}
+        const text=document.createElement('div'); text.className='log-text'; text.innerHTML=`<div style="font-weight:600">${it.text}</div>`;
+        const meta=document.createElement('div'); meta.style.display='flex'; meta.style.alignItems='center';
+        const time=document.createElement('div'); time.className='log-time'; time.innerText=(new Date(it.timeISO)).toLocaleString();
         meta.appendChild(time);
-        if (it.count && it.count > 1) {
-          const c = document.createElement('div');
-          c.className = 'count-badge';
-          c.innerText = 'x' + it.count;
-          meta.appendChild(c);
-        }
-
-        div.appendChild(icon);
-        div.appendChild(text);
-        div.appendChild(meta);
-        el.appendChild(div);
+        if(it.count&&it.count>1){ const c=document.createElement('div'); c.className='count-badge'; c.innerText='x'+it.count; meta.appendChild(c);}
+        div.appendChild(icon); div.appendChild(text); div.appendChild(meta); el.appendChild(div);
       }
     }
 
-    // load pod details and render
-    async function loadPod() {
-      try {
-        const pod = await fetch(`${API}/pods/${id}`).then(r => r.json());
-        if (!pod || pod.error) { document.body.innerHTML = '<div style="padding:20px">Pod not found. <a href="/">Back</a></div>'; return; }
-        document.getElementById('name').innerText = pod.name;
-        document.getElementById('coords').innerText = `${pod.lat.toFixed(5)}, ${pod.lng.toFixed(5)}`;
-        document.getElementById('clean').innerText = pod.cleanliness + '%';
-        document.getElementById('avail').innerText = pod.available ? 'Available' : 'Occupied';
-        document.getElementById('selfclean').innerText = pod.self_cleaning ? 'Yes' : 'No';
-        document.getElementById('lastclean').innerText = new Date(pod.last_cleaned).toLocaleString();
+    async function loadPod(){
+      try{
+        const pod=await fetch(`${API}/pods/${id}`).then(r=>r.json());
+        if(!pod||pod.error){document.body.innerHTML='<div style="padding:20px">Pod not found. <a href="/">Back</a></div>'; return;}
+        document.getElementById('name').innerText=pod.name;
+        document.getElementById('coords').innerText=`${pod.lat.toFixed(5)}, ${pod.lng.toFixed(5)}`;
+        document.getElementById('clean').innerText=pod.cleanliness+'%';
+        document.getElementById('avail').innerText=pod.available?'Available':'Occupied';
+        document.getElementById('selfclean').innerText=pod.self_cleaning?'Yes':'No';
+        document.getElementById('lastclean').innerText=new Date(pod.last_cleaned).toLocaleString();
 
-        // map init / update
-        if (!window._podMap) {
-          window._podMap = L.map('map', { zoomControl:true, attributionControl:false }).setView([pod.lat, pod.lng], 17);
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19 }).addTo(window._podMap);
-          window._podMarker = L.marker([pod.lat, pod.lng]).addTo(window._podMap).bindPopup(pod.name).openPopup();
+        // Map init / update
+        if(!window._podMap){
+          window._podMap=L.map('map',{zoomControl:true,attributionControl:false}).setView([pod.lat,pod.lng],17);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(window._podMap);
+          window._podMarker=L.marker([pod.lat,pod.lng]).addTo(window._podMap).bindPopup(pod.name).openPopup();
         } else {
-          window._podMap.setView([pod.lat, pod.lng], 17);
-          window._podMarker.setLatLng([pod.lat, pod.lng]).setPopupContent(pod.name);
+          window._podMap.setView([pod.lat,pod.lng],17);
+          window._podMarker.setLatLng([pod.lat,pod.lng]).setPopupContent(pod.name);
         }
-      } catch (e) {
-        console.error('load failed', e);
-      }
+      }catch(e){console.error('load failed',e);}
     }
 
     // Actions
-    document.getElementById('checkinBtn').addEventListener('click', async (ev) => {
-      const btn = ev.currentTarget; btn.disabled = true; const orig = btn.innerText; btn.innerText = 'Processing...';
-      try {
-        const resp = await fetch(API + '/checkin', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ podId: Number(id), method: 'apple_pay' })});
-        const j = await resp.json();
-        if (resp.ok) {
-          pushLog('Checked in via ' + prettyMethod('apple_pay'), 'usage');
-          btn.innerText = 'Checked ✓';
-          setTimeout(() => { btn.disabled = false; btn.innerText = orig; }, 1400);
-          loadPod();
-        } else {
-          // show friendlier error
-          alert('Check-in failed: ' + (j.error || 'Pod not available'));
-          btn.disabled = false; btn.innerText = orig;
-        }
-      } catch (e) {
-        alert('Network error');
-        btn.disabled = false; btn.innerText = orig;
-      }
+    document.getElementById('checkinBtn').addEventListener('click',async ev=>{
+      const btn=ev.currentTarget; btn.disabled=true; const orig=btn.innerText; btn.innerText='Processing...';
+      try{
+        const resp=await fetch(API+'/checkin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({podId:Number(id),method:'apple_pay'})});
+        const j=await resp.json();
+        if(resp.ok){ btn.innerText='Checked ✓'; setTimeout(()=>{btn.disabled=false;btn.innerText=orig;},1400); loadPod(); }
+        else{ alert('Check-in failed: '+(j.error||'Pod not available')); btn.disabled=false; btn.innerText=orig; }
+      }catch(e){alert('Network error'); btn.disabled=false; btn.innerText=orig;}
     });
 
-    document.getElementById('reportBtn').addEventListener('click', async () => {
-      const note = prompt('Describe the issue (optional):');
-      if (note == null) return;
-      document.getElementById('reportBtn').disabled = true;
-      try {
-        await fetch(API + '/report', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ podId: Number(id), note })});
-        pushLog(`Report submitted${note ? ': "' + note + '"' : ''}`, 'report');
-      } catch (e) {
-        alert('Report failed');
-      } finally {
-        document.getElementById('reportBtn').disabled = false;
-      }
+    document.getElementById('reportBtn').addEventListener('click',async ()=>{
+      const note=prompt('Describe the issue (optional):'); if(note==null)return; document.getElementById('reportBtn').disabled=true;
+      try{ await fetch(API+'/report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({podId:Number(id),note})}); }
+      catch(e){ alert('Report failed'); } finally{ document.getElementById('reportBtn').disabled=false; }
     });
 
-    document.getElementById('toggleBtn').addEventListener('click', async (ev) => {
-      const btn = ev.currentTarget; btn.disabled = true;
-      try {
-        const pod = await fetch(`${API}/pods/${id}`).then(r => r.json());
-        const newAvail = pod.available ? 0 : 1;
-        const resp = await fetch(`${API}/pods/${id}/status`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ available: newAvail })});
-        const j = await resp.json();
-        pushLog(`Availability set → ${j.available ? 'Available' : 'Occupied'}`, 'status'); // arrow is okay here (readable)
+    document.getElementById('toggleBtn').addEventListener('click',async ev=>{
+      const btn=ev.currentTarget; btn.disabled=true;
+      try{
+        const pod=await fetch(`${API}/pods/${id}`).then(r=>r.json());
+        const newAvail=pod.available?0:1;
+        await fetch(`${API}/pods/${id}/status`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({available:newAvail})});
         loadPod();
-      } catch (e) {
-        alert('Failed to toggle availability');
-      } finally {
-        btn.disabled = false;
-      }
+      }catch(e){alert('Failed to toggle availability');}finally{btn.disabled=false;}
     });
 
-    // Directions - keep as before
-    document.getElementById('directionsBtn').addEventListener('click', async () => {
-      const pod = await fetch(`${API}/pods/${id}`).then(r => r.json());
-      const dest = `${pod.lat},${pod.lng}`;
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(pos => {
-          const origin = `${pos.coords.latitude},${pos.coords.longitude}`;
-          const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(dest)}&travelmode=walking`;
-          window.open(url, '_blank');
-        }, () => {
-          const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dest)}`;
-          window.open(url, '_blank');
-        }, {timeout:5000});
-      } else {
-        const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dest)}`;
-        window.open(url, '_blank');
-      }
+    document.getElementById('directionsBtn').addEventListener('click',async ()=>{
+      const pod=await fetch(`${API}/pods/${id}`).then(r=>r.json()); const dest=`${pod.lat},${pod.lng}`;
+      if(navigator.geolocation){ navigator.geolocation.getCurrentPosition(pos=>{
+        const origin=`${pos.coords.latitude},${pos.coords.longitude}`;
+        const url=`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(dest)}&travelmode=walking`;
+        window.open(url,'_blank'); },()=>{ window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dest)}`,'_blank');},{timeout:5000}); }
+      else window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dest)}`,'_blank');
     });
 
-    // Socket listeners -> nicer messages
-    socket.on('pod-updated', (pod) => {
-      if (String(pod.id) !== String(id)) return;
-      // nicer status text: "Cleanliness: 82% • Available"
-      const statusText = `Cleanliness: ${pod.cleanliness}% • ${pod.available ? 'Available' : 'Occupied'}`;
-      pushLog(statusText, 'status');
-      // update small UI fields
-      document.getElementById('clean').innerText = pod.cleanliness + '%';
-      document.getElementById('avail').innerText = pod.available ? 'Available' : 'Occupied';
-      document.getElementById('lastclean').innerText = new Date(pod.last_cleaned).toLocaleString();
-      if (window._podMarker) window._podMarker.setLatLng([pod.lat, pod.lng]);
+    // Socket listeners
+    socket.on('pod-updated',pod=>{ if(String(pod.id)!==String(id)) return;
+      pushLog(`Cleanliness: ${pod.cleanliness}% • ${pod.available?'Available':'Occupied'}`,'status');
+      document.getElementById('clean').innerText=pod.cleanliness+'%';
+      document.getElementById('avail').innerText=pod.available?'Available':'Occupied';
+      document.getElementById('lastclean').innerText=new Date(pod.last_cleaned).toLocaleString();
+      document.getElementById('coords').innerText=`${pod.lat.toFixed(5)}, ${pod.lng.toFixed(5)}`;
+      if(window._podMarker) window._podMarker.setLatLng([pod.lat,pod.lng]);
     });
 
-    socket.on('usage', (u) => {
-      // show pretty method name
-      if (String(u.podId) === String(id)) pushLog(`Usage recorded (${prettyMethod(u.method)})`, 'usage');
-    });
+    socket.on('usage',u=>{ if(String(u.podId)===String(id)) pushLog(`Checked in via ${prettyMethod(u.method)}`,'usage'); });
+    socket.on('report-submitted',r=>{ if(String(r.podId)===String(id)) pushLog(`Report received${r.note?': "'+r.note+'"':''}`,'report'); });
 
-    socket.on('report-submitted', (r) => {
-      if (String(r.podId) === String(id)) pushLog(`Report received${r.note ? ': "' + r.note + '"' : ''}`, 'report');
-    });
-
-    // initial load + poll fallback
-    loadPod();
-    setInterval(loadPod, 20 * 1000);
+    loadPod(); setInterval(loadPod,20*1000);
   </script>
 </body>
 </html>

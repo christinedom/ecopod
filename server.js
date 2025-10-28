@@ -64,12 +64,14 @@ db.serialize(() => {
 
 // --- Helpers ---
 function haversine(lat1, lon1, lat2, lon2) {
-  function toRad(x){ return x * Math.PI / 180; }
+  function toRad(x) { return x * Math.PI / 180; }
   const R = 6371;
-  const dLat = toRad(lat2-lat1);
-  const dLon = toRad(lon2-lon1);
-  const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)*Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
 
@@ -106,7 +108,7 @@ app.get('/api/pods/near', (req, res) => {
     const filtered = rows
       .map(r => ({ ...r, distance_km: haversine(parseFloat(lat), parseFloat(lng), r.lat, r.lng) }))
       .filter(r => r.distance_km <= parseFloat(radius))
-      .sort((a,b) => a.distance_km - b.distance_km);
+      .sort((a, b) => a.distance_km - b.distance_km);
     res.json(filtered);
   });
 });
@@ -117,7 +119,7 @@ app.post('/api/pods/:id/cleanliness', (req, res) => {
   const { cleanliness } = req.body;
   if (cleanliness == null) return res.status(400).json({ error: 'cleanliness required' });
   const last_cleaned = new Date().toISOString();
-  db.run('UPDATE pods SET cleanliness = ?, last_cleaned = ? WHERE id = ?', [cleanliness, last_cleaned, id], function(err) {
+  db.run('UPDATE pods SET cleanliness = ?, last_cleaned = ? WHERE id = ?', [cleanliness, last_cleaned, id], function (err) {
     if (err) return res.status(500).json({ error: err.message });
     db.get('SELECT * FROM pods WHERE id = ?', [id], (err2, row) => {
       if (err2) return res.status(500).json({ error: err2.message });
@@ -136,7 +138,7 @@ app.put('/api/pods/:id/status', (req, res) => {
     if (!pod) return res.status(404).json({ error: 'pod not found' });
     const newAvailable = (available == null) ? pod.available : (available ? 1 : 0);
     const newSelf = (self_cleaning == null) ? pod.self_cleaning : (self_cleaning ? 1 : 0);
-    db.run('UPDATE pods SET available = ?, self_cleaning = ? WHERE id = ?', [newAvailable, newSelf, id], function(err2) {
+    db.run('UPDATE pods SET available = ?, self_cleaning = ? WHERE id = ?', [newAvailable, newSelf, id], function (err2) {
       if (err2) return res.status(500).json({ error: err2.message });
       db.get('SELECT * FROM pods WHERE id = ?', [id], (err3, row) => {
         emitPodUpdate(row);
@@ -165,7 +167,7 @@ app.post('/api/checkin', (req, res) => {
 
     const newClean = Math.max(0, pod.cleanliness - 3);
     const newAvailable = 0;
-    db.run('UPDATE pods SET cleanliness = ?, available = ? WHERE id = ?', [newClean, newAvailable, podId], function(err2) {
+    db.run('UPDATE pods SET cleanliness = ?, available = ? WHERE id = ?', [newClean, newAvailable, podId], function (err2) {
       if (err2) return res.status(500).json({ error: err2.message });
       db.get('SELECT * FROM pods WHERE id = ?', [podId], (err3, updated) => {
         io.emit('usage', { podId, method, at: new Date().toISOString() });
@@ -173,7 +175,7 @@ app.post('/api/checkin', (req, res) => {
 
         // auto-available after 30s (demo)
         setTimeout(() => {
-          db.run('UPDATE pods SET available = 1 WHERE id = ?', [podId], function() {
+          db.run('UPDATE pods SET available = 1 WHERE id = ?', [podId], function () {
             db.get('SELECT * FROM pods WHERE id = ?', [podId], (er, back) => {
               if (!er && back) emitPodUpdate(back);
             });
@@ -186,18 +188,27 @@ app.post('/api/checkin', (req, res) => {
   });
 });
 
-// Admin: create new pod
 app.post('/api/pods', (req, res) => {
-  const { name, lat, lng, cleanliness = 90, available = 1, self_cleaning = 1 } = req.body;
+  let { name, lat, lng, cleanliness = 90, available = 1, self_cleaning = 1 } = req.body;
+
+  // ✅ Robust auto-fill coordinates
+  lat = Number(lat);
+  lng = Number(lng);
+  if (isNaN(lat)) lat = 30.2672;
+  if (isNaN(lng)) lng = -97.7431;
+
   const last_cleaned = new Date().toISOString();
-  db.run('INSERT INTO pods (name, lat, lng, cleanliness, available, last_cleaned, self_cleaning) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [name, lat, lng, cleanliness, available, last_cleaned, self_cleaning], function(err) {
+  db.run(
+    'INSERT INTO pods (name, lat, lng, cleanliness, available, last_cleaned, self_cleaning) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [name, lat, lng, cleanliness, available, last_cleaned, self_cleaning],
+    function (err) {
       if (err) return res.status(500).json({ error: err.message });
       db.get('SELECT * FROM pods WHERE id = ?', [this.lastID], (err2, row) => {
         emitPodUpdate(row);
         res.json(row);
       });
-    });
+    }
+  );
 });
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
@@ -222,7 +233,7 @@ setInterval(() => {
     }
     if (newClean !== pod.cleanliness) {
       const last_cleaned = new Date().toISOString();
-      db.run('UPDATE pods SET cleanliness = ?, last_cleaned = ? WHERE id = ?', [newClean, last_cleaned, pod.id], function() {
+      db.run('UPDATE pods SET cleanliness = ?, last_cleaned = ? WHERE id = ?', [newClean, last_cleaned, pod.id], function () {
         db.get('SELECT * FROM pods WHERE id = ?', [pod.id], (err2, updated) => {
           if (!err2 && updated) emitPodUpdate(updated);
         });
